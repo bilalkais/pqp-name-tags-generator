@@ -152,7 +152,7 @@ function drawTag(page: Surface, ctx: Ctx, x: number, y: number, w: number, h: nu
 
   // Name: one line if it fits at a decent size, otherwise two balanced lines.
   const maxName = headerH * 0.55;
-  const minOneLine = maxName * 0.6;
+  const minOneLine = maxName * 0.8;
   let lines = [person.name];
   let nameSize = fitSize(fonts.bold, lines, availW, maxName);
   if (nameSize < minOneLine) {
