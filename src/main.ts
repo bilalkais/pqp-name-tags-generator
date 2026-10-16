@@ -1,6 +1,6 @@
 import fontkit from '@pdf-lib/fontkit';
 import './style.css';
-import { decodeBytes, parseCsv, type Attendee } from './csv.ts';
+import { parseFile, type Attendee } from './csv.ts';
 import { LAYOUTS, DEFAULT_LAYOUT_ID, getLayout } from './layouts.ts';
 import { buildPreviewPdf, buildSheetPdf, MONTHS, type Assets, type Person, type TagSettings } from './pdf.ts';
 
@@ -45,7 +45,7 @@ function saveSettings() {
 
 let settings = loadSettings();
 let attendees: Attendee[] = [];
-const excluded = new Set<number>(); // by CSV line
+const excluded = new Set<number>(); // by source row
 let previewLine: number | null = null;
 let assets: Assets | null = null;
 let supportedChars: Set<number> | null = null;
@@ -99,8 +99,7 @@ const dropzone = $('dropzone');
 const fileInput = $<HTMLInputElement>('file');
 
 async function loadFile(file: File) {
-  const text = decodeBytes(await file.arrayBuffer());
-  const result = parseCsv(text);
+  const result = await parseFile(file);
   const notices = $('notices');
   notices.innerHTML = '';
   const addNotice = (msg: string, cls = '') => {
@@ -122,8 +121,10 @@ async function loadFile(file: File) {
   excluded.clear();
   previewLine = attendees[0]?.line ?? null;
   $('drop-title').textContent = file.name;
-  $('drop-sub').textContent = `${attendees.length} attendees loaded. Drop another file to replace them.`;
-  dropzone.classList.add('loaded');
+  $('drop-sub').textContent = result.error
+    ? 'Not loaded. Fix the file and drop it again.'
+    : `${attendees.length} attendees loaded. Drop another file to replace them.`;
+  dropzone.classList.toggle('loaded', !result.error);
   renderTable();
   refresh();
 }

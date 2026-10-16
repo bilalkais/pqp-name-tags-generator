@@ -11,7 +11,7 @@
       <img src="./assets/cem-logo.png" alt="Council of European Muslims" />
       <div>
         <h1>PQP Name Tags</h1>
-        <p>Turn a CSV of attendees into a PDF ready to print</p>
+        <p>Turn a CSV or Excel list of attendees into a PDF ready to print</p>
       </div>
     </header>
 
@@ -20,9 +20,9 @@
         <div class="card">
           <h2><span class="step">1</span> Attendees</h2>
           <label class="dropzone" id="dropzone">
-            <input type="file" id="file" accept=".csv,text/csv" hidden />
-            <strong id="drop-title">Drop a CSV file here</strong>
-            <span id="drop-sub">or click to choose. Columns: <code>name</code>, <code>country</code></span>
+            <input type="file" id="file" accept=".csv,.xlsx,.xlsm,.xls,.ods,text/csv" hidden />
+            <strong id="drop-title">Drop a CSV or Excel file here</strong>
+            <span id="drop-sub">or click to choose. Required columns: <code>name</code>, <code>country</code></span>
           </label>
           <a class="small-link" href="./sample-attendees.csv" download>Download a sample CSV</a>
           <ul id="notices" class="notices"></ul>
@@ -78,7 +78,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th></th><th>Line</th><th>Name</th><th>Country</th><th>Check</th></tr></thead>
+              <thead><tr><th></th><th>Row</th><th>Name</th><th>Country</th><th>Check</th></tr></thead>
               <tbody id="rows"></tbody>
             </table>
           </div>
