@@ -20,4 +20,5 @@ npm run build      # static site in dist/ (host anywhere, e.g. GitHub Pages)
 - `src/layouts.ts`: tag sizes and sheet grids
 - `src/csv.ts`: CSV/Excel parsing and checks
 - `public/assets/cem-logo.png`: replace with a higher-resolution logo (same filename) for sharper print
-- `public/fonts/`: Noto Sans (SIL Open Font License)
+- `src/text.ts`: text shaping (HarfBuzz) and per-script font fallback, so names in any major script print correctly (Arabic, Hebrew, Cyrillic, Greek, Indic, Thai, Chinese, Japanese, Korean, …)
+- `public/fonts/`: Noto Sans plus per-script Noto fonts in `scripts/`, downloaded by the browser only when a name needs them (SIL Open Font License)

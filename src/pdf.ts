@@ -1,11 +1,9 @@
-import { PDFDocument, PDFFont, PDFImage, PDFPage, rgb } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+import { PDFDocument, PDFImage, PDFPage, rgb, type Color } from 'pdf-lib';
 import { getLayout } from './layouts.ts';
+import type { TextEngine, Weight } from './text.ts';
 
 export interface Assets {
-  regular: Uint8Array;
-  semibold: Uint8Array;
-  bold: Uint8Array;
+  text: TextEngine;
   logo: Uint8Array;
 }
 
@@ -40,10 +38,20 @@ const BLACK = rgb(0, 0, 0);
 const CAP_HEIGHT = 0.714; // Noto Sans cap height / em
 const mm = (v: number) => (v * 72) / 25.4;
 
+/** A text style bound to the shaping engine. */
+interface TextFont {
+  width(text: string, size: number): number;
+  draw(page: PDFPage, text: string, size: number, x: number, baseline: number, color: Color): void;
+}
+
+const textFont = (engine: TextEngine, weight: Weight): TextFont => ({
+  width: (text, size) => engine.width(text, weight, size),
+  draw: (page, text, size, x, baseline, color) => engine.draw(page, text, weight, size, x, baseline, color),
+});
+
 interface Fonts {
-  regular: PDFFont;
-  semibold: PDFFont;
-  bold: PDFFont;
+  semibold: TextFont;
+  bold: TextFont;
 }
 
 interface Ctx {
@@ -52,18 +60,18 @@ interface Ctx {
   settings: TagSettings;
 }
 
-async function setup(assets: Assets, settings: TagSettings) {
+async function setup(assets: Assets, settings: TagSettings, people: (Person | null)[]) {
   const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
-  const [regular, semibold, bold] = await Promise.all([
-    doc.embedFont(assets.regular, { subset: true }),
-    doc.embedFont(assets.semibold, { subset: true }),
-    doc.embedFont(assets.bold, { subset: true }),
+  await assets.text.ensureFonts([
+    headerLine1(settings),
+    headerLine2(settings),
+    ...people.flatMap((p) => (p ? [p.name, p.country] : [])),
   ]);
   const logo = await doc.embedPng(assets.logo);
   doc.setTitle(`${headerLine1(settings)} name tags, ${headerLine2(settings)}`);
   doc.setCreator('PQP name tag generator');
-  const ctx: Ctx = { fonts: { regular, semibold, bold }, logo, settings };
+  const fonts = { semibold: textFont(assets.text, 'semibold'), bold: textFont(assets.text, 'bold') };
+  const ctx: Ctx = { fonts, logo, settings };
   return { doc, ctx };
 }
 
@@ -75,20 +83,20 @@ export function headerLine1(s: TagSettings) {
 export const headerLine2 = (s: TagSettings) => `${MONTHS[s.month - 1]} ${s.year}`;
 
 /** Largest size ≤ max at which every line fits within width. */
-function fitSize(font: PDFFont, lines: string[], width: number, max: number) {
-  const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, max)));
+function fitSize(font: TextFont, lines: string[], width: number, max: number) {
+  const widest = Math.max(...lines.map((l) => font.width(l, max)));
   return widest > width ? (max * width) / widest : max;
 }
 
 /** Split a name into two lines at the space that best balances their widths. */
-function splitTwoLines(font: PDFFont, text: string): string[] | null {
+function splitTwoLines(font: TextFont, text: string): string[] | null {
   const words = text.split(' ');
   if (words.length < 2) return null;
   let best: string[] | null = null;
   let bestWidth = Infinity;
   for (let i = 1; i < words.length; i++) {
     const lines = [words.slice(0, i).join(' '), words.slice(i).join(' ')];
-    const w = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, 10)));
+    const w = Math.max(...lines.map((l) => font.width(l, 10)));
     if (w < bestWidth) {
       bestWidth = w;
       best = lines;
@@ -97,8 +105,8 @@ function splitTwoLines(font: PDFFont, text: string): string[] | null {
   return best;
 }
 
-function drawCentered(page: PDFPage, text: string, font: PDFFont, size: number, cx: number, baseline: number, color = INK) {
-  page.drawText(text, { x: cx - font.widthOfTextAtSize(text, size) / 2, y: baseline, size, font, color });
+function drawCentered(page: PDFPage, text: string, font: TextFont, size: number, cx: number, baseline: number, color = INK) {
+  font.draw(page, text, size, cx - font.width(text, size) / 2, baseline, color);
 }
 
 /** Draw one tag with its bottom-left corner at (x, y). Units are PDF points. person = null draws a blank tag. */
@@ -126,8 +134,8 @@ function drawTag(page: PDFPage, ctx: Ctx, x: number, y: number, w: number, h: nu
   const gap = headerH * 0.1;
   const blockH = s1 * CAP_HEIGHT + gap + s2 * CAP_HEIGHT;
   const b1 = top - headerH / 2 + blockH / 2 - s1 * CAP_HEIGHT;
-  if (l1) page.drawText(l1, { x: textX, y: b1, size: s1, font: fonts.bold, color: WHITE });
-  page.drawText(l2, { x: textX, y: b1 - gap - s2 * CAP_HEIGHT, size: s2, font: fonts.semibold, color: YELLOW });
+  if (l1) fonts.bold.draw(page, l1, s1, textX, b1, WHITE);
+  fonts.semibold.draw(page, l2, s2, textX, b1 - gap - s2 * CAP_HEIGHT, YELLOW);
 
   // Accent stripe.
   page.drawRectangle({ x, y, width: w, height: stripeH, color: YELLOW });
@@ -214,7 +222,7 @@ function drawCropMarks(page: PDFPage, ox: number, oy: number, cols: number, rows
 
 /** Build the print PDF. null entries are blank tags. */
 export async function buildSheetPdf(people: (Person | null)[], settings: TagSettings, assets: Assets): Promise<Uint8Array> {
-  const { doc, ctx } = await setup(assets, settings);
+  const { doc, ctx } = await setup(assets, settings, people);
   const layout = getLayout(settings.layoutId);
   const pageW = mm(layout.pageW);
   const pageH = mm(layout.pageH);
@@ -238,7 +246,7 @@ export async function buildSheetPdf(people: (Person | null)[], settings: TagSett
 
 /** A single tag on a page of exactly its size, for the on-screen preview. */
 export async function buildPreviewPdf(person: Person | null, settings: TagSettings, assets: Assets): Promise<Uint8Array> {
-  const { doc, ctx } = await setup(assets, settings);
+  const { doc, ctx } = await setup(assets, settings, [person]);
   const layout = getLayout(settings.layoutId);
   const w = mm(layout.tagW);
   const h = mm(layout.tagH);

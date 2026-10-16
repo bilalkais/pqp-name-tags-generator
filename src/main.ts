@@ -1,8 +1,8 @@
-import fontkit from '@pdf-lib/fontkit';
 import './style.css';
 import { parseFile, type Attendee } from './csv.ts';
 import { LAYOUTS, DEFAULT_LAYOUT_ID, getLayout } from './layouts.ts';
 import { buildPreviewPdf, buildSheetPdf, MONTHS, type Assets, type Person, type TagSettings } from './pdf.ts';
+import { TextEngine } from './text.ts';
 
 interface Settings extends TagSettings {
   blankCount: number;
@@ -48,7 +48,6 @@ let attendees: Attendee[] = [];
 const excluded = new Set<number>(); // by source row
 let previewLine: number | null = null;
 let assets: Assets | null = null;
-let supportedChars: Set<number> | null = null;
 
 // ---- Form wiring ----
 
@@ -113,8 +112,9 @@ async function loadFile(file: File) {
     attendees = [];
   } else {
     attendees = result.attendees;
-    markUnsupported();
+    const dropped = await removeUnprintable();
     result.notices.forEach((n) => addNotice(n));
+    if (dropped) addNotice(`${dropped} row${dropped === 1 ? ' was' : 's were'} skipped: the name had no printable characters.`);
     const flagged = attendees.filter((a) => a.issues.length).length;
     if (flagged) addNotice(`${flagged} row${flagged === 1 ? ' needs' : 's need'} a look; see the Check column.`, 'warn');
   }
@@ -129,12 +129,19 @@ async function loadFile(file: File) {
   refresh();
 }
 
-function markUnsupported() {
-  if (!supportedChars) return;
+/** Strip characters no font can print (emoji, flags, …). Returns how many rows were left without a name. */
+async function removeUnprintable() {
+  if (!assets) return 0;
+  const text = assets.text;
+  $('summary').textContent = 'Loading fonts…';
+  await text.ensureFonts(attendees.flatMap((a) => [a.name, a.country]));
   for (const a of attendees) {
-    const bad = [...new Set([...(a.name + a.country)].filter((ch) => ch !== ' ' && !supportedChars!.has(ch.codePointAt(0)!)))];
-    if (bad.length) a.issues.push(`Can't print: ${bad.join(' ')}`);
+    a.name = text.printable(a.name).text;
+    a.country = text.printable(a.country).text;
   }
+  const before = attendees.length;
+  attendees = attendees.filter((a) => a.name);
+  return before - attendees.length;
 }
 
 fileInput.addEventListener('change', () => fileInput.files?.[0] && loadFile(fileInput.files[0]));
@@ -270,15 +277,8 @@ async function loadAssets() {
     if (!res.ok) throw new Error(`Missing ${path}`);
     return new Uint8Array(await res.arrayBuffer());
   };
-  const [regular, semibold, bold, logo] = await Promise.all([
-    get('fonts/NotoSans-Regular.ttf'),
-    get('fonts/NotoSans-SemiBold.ttf'),
-    get('fonts/NotoSans-Bold.ttf'),
-    get('assets/cem-logo.png'),
-  ]);
-  assets = { regular, semibold, bold, logo };
-  // Bold is what names are printed in, so check its character coverage.
-  supportedChars = new Set(fontkit.create(bold).characterSet);
+  const [text, logo] = await Promise.all([TextEngine.create(get), get('assets/cem-logo.png')]);
+  assets = { text, logo };
 }
 
 loadAssets()
