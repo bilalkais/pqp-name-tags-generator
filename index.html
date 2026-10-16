@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="./assets/cem-logo.png" />
+    <title>PQP Name Tags</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <img src="./assets/cem-logo.png" alt="Council of European Muslims" />
+      <div>
+        <h1>PQP Name Tags</h1>
+        <p>Turn a CSV of attendees into a PDF ready to print</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="controls">
+        <div class="card">
+          <h2><span class="step">1</span> Attendees</h2>
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="file" accept=".csv,text/csv" hidden />
+            <strong id="drop-title">Drop a CSV file here</strong>
+            <span id="drop-sub">or click to choose. Columns: <code>name</code>, <code>country</code></span>
+          </label>
+          <a class="small-link" href="./sample-attendees.csv" download>Download a sample CSV</a>
+          <ul id="notices" class="notices"></ul>
+        </div>
+
+        <div class="card">
+          <h2><span class="step">2</span> Event</h2>
+          <div class="grid2">
+            <label>Title<input id="title" type="text" /></label>
+            <label>Class<input id="className" type="text" placeholder="e.g. 5" /></label>
+            <label>Month<select id="month"></select></label>
+            <label>Year<input id="year" type="number" min="2000" max="2100" /></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><span class="step">3</span> Print</h2>
+          <label>Tag size<select id="layoutId"></select></label>
+          <div class="grid2">
+            <label>Order
+              <select id="sort">
+                <option value="csv">As in CSV</option>
+                <option value="name">Name A–Z</option>
+                <option value="country">Country, then name</option>
+              </select>
+            </label>
+            <label>Blank tags<input id="blankCount" type="number" min="0" max="200" /></label>
+          </div>
+          <label class="check"><input id="cropMarks" type="checkbox" /> Crop marks</label>
+        </div>
+      </section>
+
+      <section class="output">
+        <div class="card preview-card">
+          <div class="preview-head">
+            <h2>Preview</h2>
+            <span id="preview-name" class="muted"></span>
+          </div>
+          <div class="preview-frame" id="preview-frame">
+            <iframe id="preview" title="Tag preview"></iframe>
+          </div>
+          <div class="actions">
+            <span id="summary" class="muted"></span>
+            <button id="download" class="primary" disabled>Download PDF</button>
+          </div>
+          <p class="hint">Print at <strong>100% / Actual size</strong>, not “Fit to page”.</p>
+        </div>
+
+        <div class="card" id="table-card" hidden>
+          <div class="preview-head">
+            <h2>Attendees</h2>
+            <span class="muted">Click a row to preview it</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th></th><th>Line</th><th>Name</th><th>Country</th><th>Check</th></tr></thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
