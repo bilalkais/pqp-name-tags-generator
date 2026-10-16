@@ -1,7 +1,7 @@
 import './style.css';
 import { parseFile, type Attendee } from './csv.ts';
 import { LAYOUTS, DEFAULT_LAYOUT_ID, getLayout } from './layouts.ts';
-import { buildPreviewPdf, buildSheetPdf, MONTHS, type Assets, type Person, type TagSettings } from './pdf.ts';
+import { buildSheetPdf, renderPreview, MONTHS, type Assets, type Person, type TagSettings } from './pdf.ts';
 import { TextEngine } from './text.ts';
 
 interface Settings extends TagSettings {
@@ -48,6 +48,7 @@ let attendees: Attendee[] = [];
 const excluded = new Set<number>(); // by source row
 let previewLine: number | null = null;
 let assets: Assets | null = null;
+let logoBitmap: ImageBitmap | null = null;
 
 // ---- Form wiring ----
 
@@ -226,25 +227,22 @@ function refresh() {
 }
 
 let previewTimer: number | undefined;
-let previewUrl: string | null = null;
 let previewSeq = 0;
 
 function schedulePreview() {
   clearTimeout(previewTimer);
-  previewTimer = window.setTimeout(renderPreview, 200);
+  previewTimer = window.setTimeout(updatePreview, 150);
 }
 
-async function renderPreview() {
-  if (!assets) return;
+async function updatePreview() {
+  if (!assets || !logoBitmap) return;
   const seq = ++previewSeq;
   const a = attendees.find((x) => x.line === previewLine);
   const person = a ? { name: a.name, country: a.country } : SAMPLE;
   $('preview-name').textContent = a ? a.name : 'Sample attendee';
-  const bytes = await buildPreviewPdf(person, settings, assets);
+  await assets.text.ensureFonts([person.name, person.country]);
   if (seq !== previewSeq) return;
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-  $<HTMLIFrameElement>('preview').src = `${previewUrl}#toolbar=0&navpanes=0&view=Fit`;
+  await renderPreview($<HTMLCanvasElement>('preview'), person, settings, assets.text, logoBitmap);
 }
 
 $('download').addEventListener('click', async () => {
@@ -279,7 +277,10 @@ async function loadAssets() {
   };
   const [text, logo] = await Promise.all([TextEngine.create(get), get('assets/cem-logo.png')]);
   assets = { text, logo };
+  logoBitmap = await createImageBitmap(new Blob([logo as BlobPart], { type: 'image/png' }));
 }
+
+window.addEventListener('resize', schedulePreview);
 
 loadAssets()
   .then(refresh)

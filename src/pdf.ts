@@ -1,5 +1,6 @@
-import { PDFDocument, PDFImage, PDFPage, rgb, type Color } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { getLayout } from './layouts.ts';
+import { canvasSurface, pdfSurface, type RGB, type Surface } from './surface.ts';
 import type { TextEngine, Weight } from './text.ts';
 
 export interface Assets {
@@ -28,12 +29,12 @@ export const MONTHS = [
 ];
 
 // Colours sampled from the CEM logo.
-const BLUE = rgb(0x17 / 255, 0x48 / 255, 0x96 / 255);
-const YELLOW = rgb(0xff / 255, 0xca / 255, 0x26 / 255);
-const INK = rgb(0x10 / 255, 0x24 / 255, 0x4a / 255);
-const MUTED = rgb(0.78, 0.8, 0.85);
-const WHITE = rgb(1, 1, 1);
-const BLACK = rgb(0, 0, 0);
+const BLUE: RGB = [0x17 / 255, 0x48 / 255, 0x96 / 255];
+const YELLOW: RGB = [0xff / 255, 0xca / 255, 0x26 / 255];
+const INK: RGB = [0x10 / 255, 0x24 / 255, 0x4a / 255];
+const MUTED: RGB = [0.78, 0.8, 0.85];
+const WHITE: RGB = [1, 1, 1];
+const BLACK: RGB = [0, 0, 0];
 
 const CAP_HEIGHT = 0.714; // Noto Sans cap height / em
 const mm = (v: number) => (v * 72) / 25.4;
@@ -41,12 +42,12 @@ const mm = (v: number) => (v * 72) / 25.4;
 /** A text style bound to the shaping engine. */
 interface TextFont {
   width(text: string, size: number): number;
-  draw(page: PDFPage, text: string, size: number, x: number, baseline: number, color: Color): void;
+  draw(surface: Surface, text: string, size: number, x: number, baseline: number, color: RGB): void;
 }
 
 const textFont = (engine: TextEngine, weight: Weight): TextFont => ({
   width: (text, size) => engine.width(text, weight, size),
-  draw: (page, text, size, x, baseline, color) => engine.draw(page, text, weight, size, x, baseline, color),
+  draw: (surface, text, size, x, baseline, color) => engine.draw(surface, text, weight, size, x, baseline, color),
 });
 
 interface Fonts {
@@ -56,23 +57,19 @@ interface Fonts {
 
 interface Ctx {
   fonts: Fonts;
-  logo: PDFImage;
+  /** Logo width / height. */
+  logoAspect: number;
   settings: TagSettings;
 }
 
-async function setup(assets: Assets, settings: TagSettings, people: (Person | null)[]) {
-  const doc = await PDFDocument.create();
-  await assets.text.ensureFonts([
+async function makeCtx(text: TextEngine, settings: TagSettings, people: (Person | null)[], logoAspect: number): Promise<Ctx> {
+  await text.ensureFonts([
     headerLine1(settings),
     headerLine2(settings),
     ...people.flatMap((p) => (p ? [p.name, p.country] : [])),
   ]);
-  const logo = await doc.embedPng(assets.logo);
-  doc.setTitle(`${headerLine1(settings)} name tags, ${headerLine2(settings)}`);
-  doc.setCreator('PQP name tag generator');
-  const fonts = { semibold: textFont(assets.text, 'semibold'), bold: textFont(assets.text, 'bold') };
-  const ctx: Ctx = { fonts, logo, settings };
-  return { doc, ctx };
+  const fonts = { semibold: textFont(text, 'semibold'), bold: textFont(text, 'bold') };
+  return { fonts, logoAspect, settings };
 }
 
 /** The word "Class" is fixed; the field holds only the class itself (e.g. "5"). */
@@ -105,25 +102,25 @@ function splitTwoLines(font: TextFont, text: string): string[] | null {
   return best;
 }
 
-function drawCentered(page: PDFPage, text: string, font: TextFont, size: number, cx: number, baseline: number, color = INK) {
-  font.draw(page, text, size, cx - font.width(text, size) / 2, baseline, color);
+function drawCentered(surface: Surface, text: string, font: TextFont, size: number, cx: number, baseline: number, color = INK) {
+  font.draw(surface, text, size, cx - font.width(text, size) / 2, baseline, color);
 }
 
 /** Draw one tag with its bottom-left corner at (x, y). Units are PDF points. person = null draws a blank tag. */
-function drawTag(page: PDFPage, ctx: Ctx, x: number, y: number, w: number, h: number, person: Person | null) {
-  const { fonts, logo, settings } = ctx;
+function drawTag(page: Surface, ctx: Ctx, x: number, y: number, w: number, h: number, person: Person | null) {
+  const { fonts, logoAspect, settings } = ctx;
   const headerH = Math.min(h * 0.3, w * 0.3);
   const stripeH = headerH * 0.16;
   const pad = w * 0.06;
   const top = y + h;
 
   // Header band; the logo's own background is the same blue, so it blends in.
-  page.drawRectangle({ x, y: top - headerH, width: w, height: headerH, color: BLUE });
+  page.rect(x, top - headerH, w, headerH, BLUE);
   // Breathing room around the logo (also keeps image edges off the band edge).
   const logoInset = headerH * 0.12;
   const logoH = headerH - 2 * logoInset;
-  const logoW = (logoH * logo.width) / logo.height;
-  page.drawImage(logo, { x: x + logoInset * 1.5, y: top - headerH + logoInset, width: logoW, height: logoH });
+  const logoW = logoH * logoAspect;
+  page.logo(x + logoInset * 1.5, top - headerH + logoInset, logoW, logoH);
 
   const textX = x + logoInset * 1.5 + logoW + pad * 0.4;
   const textW = x + w - pad * 0.7 - textX;
@@ -138,7 +135,7 @@ function drawTag(page: PDFPage, ctx: Ctx, x: number, y: number, w: number, h: nu
   fonts.semibold.draw(page, l2, s2, textX, b1 - gap - s2 * CAP_HEIGHT, YELLOW);
 
   // Accent stripe.
-  page.drawRectangle({ x, y, width: w, height: stripeH, color: YELLOW });
+  page.rect(x, y, w, stripeH, YELLOW);
 
   const bodyTop = top - headerH;
   const bodyBottom = y + stripeH;
@@ -149,7 +146,7 @@ function drawTag(page: PDFPage, ctx: Ctx, x: number, y: number, w: number, h: nu
   if (!person) {
     // Blank tag for walk-ins: a faint writing line.
     const lineY = bodyBottom + bodyH * 0.4;
-    page.drawLine({ start: { x: x + pad, y: lineY }, end: { x: x + w - pad, y: lineY }, thickness: 0.5, color: MUTED });
+    page.line(x + pad, lineY, x + w - pad, lineY, 0.5, MUTED);
     return;
   }
 
@@ -194,14 +191,14 @@ function drawTag(page: PDFPage, ctx: Ctx, x: number, y: number, w: number, h: nu
   }
 }
 
-function drawCropMarks(page: PDFPage, ox: number, oy: number, cols: number, rows: number, tw: number, th: number) {
+function drawCropMarks(page: Surface, ox: number, oy: number, cols: number, rows: number, tw: number, th: number) {
   const marginX = ox;
   const marginY = oy;
   const offset = mm(1.5);
   const lenX = Math.min(mm(6), marginX - offset - mm(1));
   const lenY = Math.min(mm(6), marginY - offset - mm(1));
   const line = (x1: number, y1: number, x2: number, y2: number) =>
-    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 0.3, color: BLACK });
+    page.line(x1, y1, x2, y2, 0.3, BLACK);
   const right = ox + cols * tw;
   const top = oy + rows * th;
   if (lenY > mm(2)) {
@@ -222,7 +219,11 @@ function drawCropMarks(page: PDFPage, ox: number, oy: number, cols: number, rows
 
 /** Build the print PDF. null entries are blank tags. */
 export async function buildSheetPdf(people: (Person | null)[], settings: TagSettings, assets: Assets): Promise<Uint8Array> {
-  const { doc, ctx } = await setup(assets, settings, people);
+  const doc = await PDFDocument.create();
+  doc.setTitle(`${headerLine1(settings)} name tags, ${headerLine2(settings)}`);
+  doc.setCreator('PQP name tag generator');
+  const logo = await doc.embedPng(assets.logo);
+  const ctx = await makeCtx(assets.text, settings, people, logo.width / logo.height);
   const layout = getLayout(settings.layoutId);
   const pageW = mm(layout.pageW);
   const pageH = mm(layout.pageH);
@@ -233,7 +234,7 @@ export async function buildSheetPdf(people: (Person | null)[], settings: TagSett
   const oy = (pageH - layout.rows * th) / 2;
 
   for (let start = 0; start < people.length; start += perPage) {
-    const page = doc.addPage([pageW, pageH]);
+    const page = pdfSurface(doc.addPage([pageW, pageH]), logo);
     people.slice(start, start + perPage).forEach((p, i) => {
       const col = i % layout.cols;
       const row = Math.floor(i / layout.cols);
@@ -244,13 +245,24 @@ export async function buildSheetPdf(people: (Person | null)[], settings: TagSett
   return doc.save();
 }
 
-/** A single tag on a page of exactly its size, for the on-screen preview. */
-export async function buildPreviewPdf(person: Person | null, settings: TagSettings, assets: Assets): Promise<Uint8Array> {
-  const { doc, ctx } = await setup(assets, settings, [person]);
+/** Draw a single tag onto a canvas for the on-screen preview, sized to the canvas's CSS width. */
+export async function renderPreview(
+  canvas: HTMLCanvasElement,
+  person: Person | null,
+  settings: TagSettings,
+  text: TextEngine,
+  logo: ImageBitmap,
+) {
+  const ctx = await makeCtx(text, settings, [person], logo.width / logo.height);
   const layout = getLayout(settings.layoutId);
   const w = mm(layout.tagW);
   const h = mm(layout.tagH);
-  const page = doc.addPage([w, h]);
-  drawTag(page, ctx, 0, 0, w, h, person);
-  return doc.save();
+  const pxPerPt = (canvas.clientWidth * (window.devicePixelRatio || 1)) / w;
+  canvas.width = Math.round(w * pxPerPt);
+  canvas.height = Math.round(h * pxPerPt);
+  const c = canvas.getContext('2d')!;
+  c.setTransform(pxPerPt, 0, 0, pxPerPt, 0, 0);
+  c.fillStyle = '#fff';
+  c.fillRect(0, 0, w, h);
+  drawTag(canvasSurface(c, h, logo), ctx, 0, 0, w, h, person);
 }

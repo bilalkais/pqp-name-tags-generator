@@ -1,5 +1,5 @@
 import type { Font as HbFont } from 'harfbuzzjs';
-import type { Color, PDFPage } from 'pdf-lib';
+import type { RGB, Surface } from './surface.ts';
 
 // Text is shaped with HarfBuzz (joined Arabic, Indic reordering, mark placement, RTL)
 // and drawn as vector outlines, so any script prints correctly with the right font.
@@ -240,7 +240,7 @@ export class TextEngine {
     return this.shape(text, weight).width * size;
   }
 
-  /** SVG path for a glyph, flipped to y-down (what pdf-lib's drawSvgPath expects). */
+  /** SVG path for a glyph, flipped to y-down (what Surface.path expects). */
   private glyphPath(font: LoadedFont, gid: number) {
     let path = font.paths.get(gid);
     if (path === undefined) {
@@ -254,11 +254,11 @@ export class TextEngine {
   }
 
   /** Draw text with its left edge at x and its baseline at y (PDF points). */
-  draw(page: PDFPage, text: string, weight: Weight, size: number, x: number, y: number, color: Color) {
+  draw(surface: Surface, text: string, weight: Weight, size: number, x: number, y: number, color: RGB) {
     for (const g of this.shape(text, weight).glyphs) {
       const path = this.glyphPath(g.font, g.gid);
       if (!path) continue;
-      page.drawSvgPath(path, { x: x + g.x * size, y: y + g.y * size, scale: size / g.font.upem, color });
+      surface.path(path, x + g.x * size, y + g.y * size, size / g.font.upem, color);
     }
   }
 }
